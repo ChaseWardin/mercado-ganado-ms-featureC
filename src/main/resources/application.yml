@@ -81,6 +81,12 @@ app:
       # TTL por dominio. Entidades: corto. Catalogos: 24h.
       usuarios: ${CACHE_TTL_USUARIOS:10m}
       usuarios-por-email: ${CACHE_TTL_USUARIOS_EMAIL:10m}
+  seed-admin:
+    # Crea el usuario ADMIN solo si se habilita explicitamente. Apagado por
+    # defecto para no crear administradores de forma accidental.
+    enabled: ${SEED_ADMIN_ENABLED:false}
+    email: ${SEED_ADMIN_EMAIL:}
+    password: ${SEED_ADMIN_PASSWORD:}
   jwt:
     secret: ${JWT_SECRET:mercado_animales_secreto_desarrollo_cambiar_en_produccion_2026}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
