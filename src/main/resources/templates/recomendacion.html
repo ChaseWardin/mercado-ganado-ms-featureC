@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Recomendaciones para ti - Mercado Animales</h2>
+  <p>Hola <span th:text="${nombre}">usuario</span>,</p>
+  <p>Estas publicaciones podrian interesarte:</p>
+  <ul>
+    <li th:each="p : ${publicaciones}" th:text="${p}"></li>
+  </ul>
+  <p>Ingresa a Mercado Animales para verlas.</p>
+</body>
+</html>

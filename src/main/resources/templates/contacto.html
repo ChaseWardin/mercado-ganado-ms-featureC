@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Nuevo mensaje - Mercado Animales</h2>
+  <p>De: <span th:text="${remitente}"></span> (<span th:text="${remitenteEmail}"></span>)</p>
+  <p th:text="${mensaje}"></p>
+  <p>Responde directamente a este correo.</p>
+</body>
+</html>

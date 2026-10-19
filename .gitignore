@@ -1,0 +1,43 @@
+# ==========================================================================
+# Microservicio de SEGURIDAD - Mercado Animales
+# ==========================================================================
+
+# --- Artefactos de build ---
+target/
+*.class
+*.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# --- Logs de ejecucion local ---
+logs/
+*.log
+
+# --- Credenciales / configuracion local: NUNCA versionar ---
+.env
+*.env
+liquibase.properties
+application-local.yml
+
+# --- Maven wrapper: el jar no se versiona, el properties si ---
+.mvn/wrapper/maven-wrapper.jar
+
+# --- IDE ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.classpath
+.project
+.settings/
+.springBeans
+.factorypath
+.sts4-cache
+*.apt_generated
+*.factorypath
+
+# --- SO ---
+.DS_Store
+Thumbs.db
+desktop.ini

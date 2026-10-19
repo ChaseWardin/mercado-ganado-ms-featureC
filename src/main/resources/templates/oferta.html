@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Nueva oferta - Mercado Animales</h2>
+  <p>Hola <span th:text="${nombre}">vendedor</span>,</p>
+  <p><b th:text="${comprador}">comprador</b> hizo una oferta por
+     <b th:text="${publicacion}">tu publicacion</b>.</p>
+  <p>Monto ofrecido: <span th:text="${monto}">0</span></p>
+  <p th:if="${mensaje}" th:text="${mensaje}"></p>
+  <p>Ingresa a Mercado Animales para responder.</p>
+</body>
+</html>

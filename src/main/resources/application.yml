@@ -1,0 +1,106 @@
+spring:
+  application:
+    name: mercado-animales-seguridad
+
+  datasource:
+    # Base remota compartida (Neon). Sobrescribir con env DB_URL/DB_USER/DB_PASSWORD.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mercado_animales?sslmode=require}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    # Las tablas las crea/evoluciona Liquibase (changelogs del commons).
+    # Hibernate solo mapea, nunca modifica el esquema.
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    show-sql: false
+
+  liquibase:
+    enabled: ${LIQUIBASE_ENABLED:true}
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+  # Instancia Redis COMPARTIDA por todos los microservicios.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:2s}
+
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        debug: ${MAIL_DEBUG:false}
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+thymeleaf:
+  prefix: classpath:/templates/
+  suffix: .html
+  mode: HTML
+  cache: false
+
+server:
+  port: ${SERVER_PORT:8084}
+  forward-headers-strategy: framework
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 5
+    lease-expiration-duration-in-seconds: 15
+
+app:
+  cors:
+    # Origenes permitidos (separados por coma). "*" por defecto en desarrollo.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  openapi:
+    # Base que usa "Try it out" en el Swagger del gateway. Debe ser el prefijo
+    # publico, no el puerto directo. Vacia = autodetectada por Springdoc.
+    server-url: ${SEGURIDAD_OPENAPI_SERVER_URL:/seguridad-ms}
+  cache:
+    # Cache compartido (Redis). Un namespace por microservicio para segmentar
+    # las claves: seguridad:usuarios::5
+    enabled: ${CACHE_ENABLED:true}
+    log-operations: ${CACHE_LOG_OPERATIONS:true}
+    namespace: ${CACHE_NAMESPACE:seguridad}
+    default-ttl: ${CACHE_DEFAULT_TTL:15m}
+    ttls:
+      # TTL por dominio. Entidades: corto. Catalogos: 24h.
+      usuarios: ${CACHE_TTL_USUARIOS:10m}
+      usuarios-por-email: ${CACHE_TTL_USUARIOS_EMAIL:10m}
+  jwt:
+    secret: ${JWT_SECRET:mercado_animales_secreto_desarrollo_cambiar_en_produccion_2026}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  internal:
+    token: ${INTERNAL_TOKEN:dev-internal-token}
+  db:
+    keep-alive:
+      # SELECT 1 periodico para que Neon no suspenda el compute.
+      enabled: ${DB_KEEP_ALIVE_ENABLED:true}
+      interval-ms: ${DB_KEEP_ALIVE_INTERVAL_MS:180000}
+  mail:
+    from: ${MAIL_FROM:noreply@mercadoanimales.local}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    root: INFO
+    com.mercado_animales.seguridad: INFO

@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Bienvenido a Mercado Animales</h2>
+  <p>Hola <span th:text="${nombre}">usuario</span>,</p>
+  <p>Para verificar tu cuenta, haz clic en el siguiente enlace:</p>
+  <p><a th:href="${link}" th:text="${link}">verificar</a></p>
+  <p>Si no creaste esta cuenta, ignora este mensaje.</p>
+</body>
+</html>
