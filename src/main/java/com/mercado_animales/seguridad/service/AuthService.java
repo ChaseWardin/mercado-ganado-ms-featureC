@@ -34,7 +34,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Unico servicio que emite tokens JWT y que escribe en la tabla usuarios.
@@ -215,7 +217,20 @@ public class AuthService {
         };
 
         Page<Usuario> resultado = usuarioRepository.findAll(spec, PageRequest.of(page, size));
-        List<UsuarioResponse> content = resultado.getContent().stream().map(UsuarioResponse::from).toList();
+
+        // UsuarioResponse incluye los roles y esa coleccion es LAZY: mapear
+        // cada fila disparaba un SELECT por usuario (N+1). Ahora se traen los
+        // roles de toda la pagina con una sola consulta, conservando el orden.
+        List<Integer> ids = resultado.getContent().stream().map(Usuario::getId).toList();
+        Map<Integer, Usuario> conRoles = ids.isEmpty() ? Map.of()
+                : usuarioRepository.findByIdInWithRoles(ids).stream()
+                        .collect(Collectors.toMap(Usuario::getId, usuario -> usuario));
+        List<UsuarioResponse> content = ids.stream()
+                .map(conRoles::get)
+                .filter(Objects::nonNull)
+                .map(UsuarioResponse::from)
+                .toList();
+
         return new PaginaUsuarios(content, resultado.getTotalElements(),
                 resultado.getTotalPages(), resultado.getNumber(), resultado.getSize());
     }
@@ -227,7 +242,7 @@ public class AuthService {
     @Cacheable(cacheNames = "usuarios", key = "#id")
     @Transactional(readOnly = true)
     public UsuarioResponse getById(Integer id) {
-        return usuarioRepository.findById(id)
+        return usuarioRepository.findByIdWithRoles(id)
                 .map(UsuarioResponse::from)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
     }
@@ -238,7 +253,7 @@ public class AuthService {
     })
     @Transactional
     public UsuarioResponse desactivar(Integer id) {
-        Usuario usuario = usuarioRepository.findById(id)
+        Usuario usuario = usuarioRepository.findByIdWithRoles(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
         usuario.setActivo(false);
         usuarioRepository.save(usuario);

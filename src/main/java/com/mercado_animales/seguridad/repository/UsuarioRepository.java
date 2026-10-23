@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -31,4 +33,19 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Integer>, JpaS
      */
     @Query("SELECT u FROM Usuario u LEFT JOIN FETCH u.roles WHERE u.email = :email")
     Optional<Usuario> findByEmailWithRoles(@Param("email") String email);
+
+    /**
+     * Igual que {@link #findByEmailWithRoles(String)} pero por id. La respuesta
+     * de {@code UsuarioResponse} siempre incluye roles; con un {@code findById}
+     * normal esa lectura inicializaba la coleccion LAZY con un SELECT extra.
+     */
+    @Query("SELECT u FROM Usuario u LEFT JOIN FETCH u.roles WHERE u.id = :id")
+    Optional<Usuario> findByIdWithRoles(@Param("id") Integer id);
+
+    /**
+     * Inicializa los roles de toda una pagina en UNA consulta. Sin esto,
+     * {@code listarUsuarios} disparaba un SELECT de roles por cada fila.
+     */
+    @Query("SELECT DISTINCT u FROM Usuario u LEFT JOIN FETCH u.roles WHERE u.id IN :ids")
+    List<Usuario> findByIdInWithRoles(@Param("ids") Collection<Integer> ids);
 }
