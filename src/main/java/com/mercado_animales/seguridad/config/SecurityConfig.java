@@ -31,7 +31,7 @@ public class SecurityConfig {
 
     private final AuthFilter authFilter;
 
-    @Value("${app.cors.allowed-origins:*}")
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:8080}")
     private List<String> allowedOrigins;
 
     public SecurityConfig(AuthFilter authFilter) {

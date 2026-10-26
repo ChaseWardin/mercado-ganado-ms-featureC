@@ -64,8 +64,8 @@ eureka:
 
 app:
   cors:
-    # Origenes permitidos (separados por coma). "*" por defecto en desarrollo.
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    # Origenes permitidos (separados por coma). En desarrollo solo la UI local.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:8080}
   openapi:
     # Base que usa "Try it out" en el Swagger del gateway. Debe ser el prefijo
     # publico, no el puerto directo. Vacia = autodetectada por Springdoc.
@@ -88,10 +88,12 @@ app:
     email: ${SEED_ADMIN_EMAIL:}
     password: ${SEED_ADMIN_PASSWORD:}
   jwt:
-    secret: ${JWT_SECRET:mercado_animales_secreto_desarrollo_cambiar_en_produccion_2026}
+    # Obligatorio: sin JWT_SECRET el servicio no arranca.
+    secret: ${JWT_SECRET}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
   internal:
-    token: ${INTERNAL_TOKEN:dev-internal-token}
+    # Obligatorio: protege el endpoint interno de envio de correos.
+    token: ${INTERNAL_TOKEN}
   db:
     keep-alive:
       # SELECT 1 periodico para que Neon no suspenda el compute.
