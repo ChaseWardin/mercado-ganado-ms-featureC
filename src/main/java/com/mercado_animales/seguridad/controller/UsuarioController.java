@@ -1,5 +1,6 @@
 package com.mercado_animales.seguridad.controller;
 
+import com.mercado_animales.seguridad.dto.DesactivarUsuarioRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
@@ -76,9 +77,10 @@ public class UsuarioController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Desactivar usuario")
-    public ResponseEntity<?> desactivar(@PathVariable Integer id) {
-        return ResponseEntity.ok(authService.desactivar(id));
+    @Operation(summary = "Desactivar usuario (exige el motivo de la baja)")
+    public ResponseEntity<?> desactivar(@PathVariable Integer id,
+                                        @Valid @RequestBody DesactivarUsuarioRequest request) {
+        return ResponseEntity.ok(authService.desactivar(id, request.getMotivo()));
     }
 
     @PostMapping("/{id}/roles/{rol}")

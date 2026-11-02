@@ -177,11 +177,14 @@ public class AuthService {
         Usuario usuario = usuarioRepository.findByEmailWithRoles(normalizarEmail(email))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales invalidas"));
 
-        if (!Boolean.TRUE.equals(usuario.getActivo())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales invalidas");
-        }
+        // Primero la contrasena y despues el estado: el motivo de la baja solo
+        // se le revela a quien demuestra conocer la cuenta. Si el password esta
+        // mal, la respuesta sigue siendo el generico "Credenciales invalidas".
         if (!passwordEncoder.matches(password, usuario.getPasswordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Credenciales invalidas");
+        }
+        if (!Boolean.TRUE.equals(usuario.getActivo())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, mensajeCuentaDesactivada(usuario));
         }
         if (usuario.getRoles().isEmpty()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "El usuario no tiene ningun rol asignado");
@@ -252,12 +255,22 @@ public class AuthService {
             @CacheEvict(cacheNames = "usuarios-por-email", key = "#result.email")
     })
     @Transactional
-    public UsuarioResponse desactivar(Integer id) {
+    public UsuarioResponse desactivar(Integer id, String motivo) {
+        // Se valida tambien aca y no solo en el DTO: el servicio es la ultima
+        // barrera y cualquier otro llamador debe respetar que la baja explique
+        // el motivo.
+        if (motivo == null || motivo.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "El motivo de la desactivacion es obligatorio");
+        }
+
         Usuario usuario = usuarioRepository.findByIdWithRoles(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
         usuario.setActivo(false);
+        usuario.setMotivoDesactivacion(motivo.trim());
         usuarioRepository.save(usuario);
-        log.info("Usuario desactivado: id={}, email={}", usuario.getId(), usuario.getEmail());
+        log.info("Usuario desactivado: id={}, email={}, motivo={}",
+                usuario.getId(), usuario.getEmail(), motivo.trim());
         return UsuarioResponse.from(usuario);
     }
 
@@ -358,7 +371,18 @@ public class AuthService {
         usuario.setTelefono(request.getTelefono());
         usuario.setRuc(request.getRuc());
         if (request.getActivo() != null) {
+            // Dar de baja exige motivo y ese es el camino del DELETE; por aca
+            // solo se permite reactivar. Al reactivar se limpia el motivo para
+            // que no quede pegado a una cuenta que ya volvio a estar activa.
+            if (!request.getActivo() && Boolean.TRUE.equals(usuario.getActivo())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST,
+                        "Para desactivar la cuenta usa DELETE /api/usuarios/" + id
+                                + " indicando el motivo");
+            }
             usuario.setActivo(request.getActivo());
+            if (request.getActivo()) {
+                usuario.setMotivoDesactivacion(null);
+            }
         }
         usuarioRepository.save(usuario);
 
@@ -468,6 +492,19 @@ public class AuthService {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * Texto que ve el usuario al intentar entrar con una cuenta dada de baja.
+     * Las cuentas desactivadas antes de este cambio no tienen motivo guardado:
+     * en ese caso se responde sin inventar una razon.
+     */
+    private String mensajeCuentaDesactivada(Usuario usuario) {
+        String motivo = usuario.getMotivoDesactivacion();
+        if (motivo == null || motivo.isBlank()) {
+            return "Tu cuenta fue desactivada. Contacta a un administrador para mas informacion.";
+        }
+        return "Tu cuenta fue desactivada. Motivo: " + motivo.trim();
+    }
+
     private String generarCodigo() {
         return String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
     }
@@ -508,6 +545,7 @@ public class AuthService {
         public String telefono;
         public String ruc;
         public boolean activo;
+        public String motivoDesactivacion;
         public List<String> roles = new ArrayList<>();
 
         public static UsuarioResponse from(Usuario u) {
@@ -518,6 +556,7 @@ public class AuthService {
             r.telefono = u.getTelefono();
             r.ruc = u.getRuc();
             r.activo = Boolean.TRUE.equals(u.getActivo());
+            r.motivoDesactivacion = u.getMotivoDesactivacion();
             r.roles.addAll(u.getRoles().stream().map(Rol::getName).sorted().toList());
             return r;
         }
