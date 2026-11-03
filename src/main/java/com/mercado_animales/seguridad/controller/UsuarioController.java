@@ -1,6 +1,7 @@
 package com.mercado_animales.seguridad.controller;
 
 import com.mercado_animales.seguridad.dto.DesactivarUsuarioRequest;
+import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
@@ -58,6 +59,14 @@ public class UsuarioController {
     public ResponseEntity<?> actualizarMiPerfil(@Valid @RequestBody PerfilUpdateRequest request,
                                                 Authentication authentication) {
         return ResponseEntity.ok(authService.actualizarPerfil(principal(authentication).getId(), request));
+    }
+
+    @PutMapping("/me/password")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Cambiar mi contrasena (exige la actual)")
+    public ResponseEntity<?> cambiarPassword(@Valid @RequestBody CambiarPasswordRequest request,
+                                             Authentication authentication) {
+        return ResponseEntity.ok(authService.cambiarPassword(principal(authentication).getId(), request));
     }
 
     @GetMapping("/{id}")

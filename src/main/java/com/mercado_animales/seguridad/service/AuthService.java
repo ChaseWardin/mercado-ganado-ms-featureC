@@ -1,6 +1,7 @@
 package com.mercado_animales.seguridad.service;
 
 import com.mercado_animales.seguridad.dto.EmailRequest;
+import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
@@ -73,7 +74,7 @@ public class AuthService {
     private final ConcurrentHashMap<String, RegistroPendiente> pendientes = new ConcurrentHashMap<>();
 
     public record TokenResponse(String token, String tipo, long expiraEn, Integer usuarioId, String email,
-                                String nombre, List<String> roles) {}
+                                String nombre, List<String> roles, boolean debeCambiarPassword) {}
 
     // ------------------------------------------------------------------
     // Registro diferido
@@ -329,6 +330,10 @@ public class AuthService {
         usuario.setRuc(request.getRuc());
         usuario.setFechaRegistro(LocalDate.now());
         usuario.setActivo(request.getActivo() == null || request.getActivo());
+        // La contrasena la eligio el ADMIN: es temporal y debe cambiarse al
+        // entrar, aunque nada impide que el ADMIN cree cuentas con el flag
+        // apagado en el futuro si aparece un caso que lo justifique.
+        usuario.setDebeCambiarPassword(true);
 
         List<String> nombresRoles = (request.getRoles() == null || request.getRoles().isEmpty())
                 ? List.of(ROL_COMPRADOR)
@@ -415,6 +420,38 @@ public class AuthService {
     }
 
     /**
+     * Cambio de contrasena del propio usuario. Es la pantalla a la que se
+     * redirige a las cuentas creadas por un ADMIN, que arrancan con una
+     * contrasena temporal. Se exige la actual para que un token robado no
+     * alcance para quedarse con la cuenta.
+     */
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "usuarios", key = "#id"),
+            @CacheEvict(cacheNames = "usuarios-por-email", allEntries = true)
+    })
+    @Transactional
+    public UsuarioResponse cambiarPassword(Integer id, CambiarPasswordRequest request) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+
+        if (!passwordEncoder.matches(request.getPasswordActual(), usuario.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La contrasena actual no es correcta");
+        }
+        if (passwordEncoder.matches(request.getPasswordNueva(), usuario.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "La contrasena nueva debe ser distinta de la actual");
+        }
+
+        usuario.setPasswordHash(passwordEncoder.encode(request.getPasswordNueva()));
+        usuario.setDebeCambiarPassword(false);
+        usuarioRepository.save(usuario);
+        log.info("Contrasena cambiada por el usuario id={}", usuario.getId());
+
+        return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(usuario.getEmail())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
+    }
+
+    /**
      * Cacheado por email normalizado (el mismo que usa el login).
      */
     @Cacheable(cacheNames = "usuarios-por-email", key = "#email.toLowerCase()")
@@ -478,7 +515,8 @@ public class AuthService {
                 .toList();
         String token = jwtService.generarToken(usuario.getEmail(), usuario.getId(), roles);
         return new TokenResponse(token, "Bearer", expirationMs, usuario.getId(),
-                usuario.getEmail(), usuario.getNombre(), roles);
+                usuario.getEmail(), usuario.getNombre(), roles,
+                Boolean.TRUE.equals(usuario.getDebeCambiarPassword()));
     }
 
     private void removeIfExpired(String email) {
@@ -546,6 +584,7 @@ public class AuthService {
         public String ruc;
         public boolean activo;
         public String motivoDesactivacion;
+        public boolean debeCambiarPassword;
         public List<String> roles = new ArrayList<>();
 
         public static UsuarioResponse from(Usuario u) {
@@ -557,6 +596,7 @@ public class AuthService {
             r.ruc = u.getRuc();
             r.activo = Boolean.TRUE.equals(u.getActivo());
             r.motivoDesactivacion = u.getMotivoDesactivacion();
+            r.debeCambiarPassword = Boolean.TRUE.equals(u.getDebeCambiarPassword());
             r.roles.addAll(u.getRoles().stream().map(Rol::getName).sorted().toList());
             return r;
         }
