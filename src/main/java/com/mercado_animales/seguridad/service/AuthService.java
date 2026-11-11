@@ -2,6 +2,7 @@ package com.mercado_animales.seguridad.service;
 
 import com.mercado_animales.seguridad.dto.EmailRequest;
 import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
+import com.mercado_animales.seguridad.dto.ModoFacturacionRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
@@ -11,6 +12,7 @@ import com.mercado_animales.seguridad.repository.RolRepository;
 import com.mercado_animales.seguridad.repository.UsuarioRepository;
 import com.mercado_animales.seguridad.repository.UsuarioRolRepository;
 import com.mercado_animales.seguridad.security.JwtService;
+import com.mercado_animales.usuario.ModoFacturacion;
 import com.mercado_animales.usuario.Rol;
 import com.mercado_animales.usuario.Usuario;
 import jakarta.persistence.criteria.Join;
@@ -74,7 +76,8 @@ public class AuthService {
     private final ConcurrentHashMap<String, RegistroPendiente> pendientes = new ConcurrentHashMap<>();
 
     public record TokenResponse(String token, String tipo, long expiraEn, Integer usuarioId, String email,
-                                String nombre, List<String> roles, boolean debeCambiarPassword) {}
+                                String nombre, List<String> roles, boolean debeCambiarPassword,
+                                ModoFacturacion modoFacturacion) {}
 
     // ------------------------------------------------------------------
     // Registro diferido
@@ -452,6 +455,26 @@ public class AuthService {
     }
 
     /**
+     * Preferencia general del vendedor: emitir sus propias facturas o delegarlas
+     * a un FUNCIONARIO. No hay autoasignacion de roles: solo cambia el modo de
+     * facturacion de la propia cuenta.
+     */
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "usuarios", key = "#id"),
+            @CacheEvict(cacheNames = "usuarios-por-email", allEntries = true)
+    })
+    @Transactional
+    public UsuarioResponse actualizarModoFacturacion(Integer id, ModoFacturacionRequest request) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+        usuario.setModoFacturacion(request.getModo());
+        usuarioRepository.save(usuario);
+        log.info("Modo de facturacion actualizado: id={}, modo={}", id, request.getModo());
+        return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(usuario.getEmail())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
+    }
+
+    /**
      * Cacheado por email normalizado (el mismo que usa el login).
      */
     @Cacheable(cacheNames = "usuarios-por-email", key = "#email.toLowerCase()")
@@ -516,7 +539,8 @@ public class AuthService {
         String token = jwtService.generarToken(usuario.getEmail(), usuario.getId(), roles);
         return new TokenResponse(token, "Bearer", expirationMs, usuario.getId(),
                 usuario.getEmail(), usuario.getNombre(), roles,
-                Boolean.TRUE.equals(usuario.getDebeCambiarPassword()));
+                Boolean.TRUE.equals(usuario.getDebeCambiarPassword()),
+                usuario.getModoFacturacion());
     }
 
     private void removeIfExpired(String email) {
@@ -585,6 +609,7 @@ public class AuthService {
         public boolean activo;
         public String motivoDesactivacion;
         public boolean debeCambiarPassword;
+        public ModoFacturacion modoFacturacion;
         public List<String> roles = new ArrayList<>();
 
         public static UsuarioResponse from(Usuario u) {
@@ -597,6 +622,7 @@ public class AuthService {
             r.activo = Boolean.TRUE.equals(u.getActivo());
             r.motivoDesactivacion = u.getMotivoDesactivacion();
             r.debeCambiarPassword = Boolean.TRUE.equals(u.getDebeCambiarPassword());
+            r.modoFacturacion = u.getModoFacturacion();
             r.roles.addAll(u.getRoles().stream().map(Rol::getName).sorted().toList());
             return r;
         }

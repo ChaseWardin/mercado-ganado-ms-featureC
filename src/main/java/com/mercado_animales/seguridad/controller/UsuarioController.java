@@ -2,6 +2,7 @@ package com.mercado_animales.seguridad.controller;
 
 import com.mercado_animales.seguridad.dto.DesactivarUsuarioRequest;
 import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
+import com.mercado_animales.seguridad.dto.ModoFacturacionRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
@@ -67,6 +68,15 @@ public class UsuarioController {
     public ResponseEntity<?> cambiarPassword(@Valid @RequestBody CambiarPasswordRequest request,
                                              Authentication authentication) {
         return ResponseEntity.ok(authService.cambiarPassword(principal(authentication).getId(), request));
+    }
+
+    @PutMapping("/me/modo-facturacion")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Elegir si el vendedor emite sus facturas o las delega a un funcionario")
+    public ResponseEntity<?> cambiarModoFacturacion(@Valid @RequestBody ModoFacturacionRequest request,
+                                                    Authentication authentication) {
+        return ResponseEntity.ok(authService.actualizarModoFacturacion(
+                principal(authentication).getId(), request));
     }
 
     @GetMapping("/{id}")
