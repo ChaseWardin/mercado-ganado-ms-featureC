@@ -4,6 +4,7 @@ import com.mercado_animales.seguridad.dto.DesactivarUsuarioRequest;
 import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
 import com.mercado_animales.seguridad.dto.ModoFacturacionRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
+import com.mercado_animales.seguridad.dto.ReiniciarPasswordRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
 import com.mercado_animales.seguridad.exception.ApiException;
@@ -77,6 +78,16 @@ public class UsuarioController {
                                                     Authentication authentication) {
         return ResponseEntity.ok(authService.actualizarModoFacturacion(
                 principal(authentication).getId(), request));
+    }
+
+    @PutMapping("/{id}/password")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Reinicia la contrasena de un usuario; debera cambiarla al ingresar")
+    public ResponseEntity<?> reiniciarPassword(@PathVariable Integer id,
+                                               @Valid @RequestBody ReiniciarPasswordRequest request,
+                                               Authentication authentication) {
+        return ResponseEntity.ok(authService.reiniciarPassword(
+                id, principal(authentication).getId(), request));
     }
 
     @GetMapping("/{id}")

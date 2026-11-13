@@ -4,6 +4,7 @@ import com.mercado_animales.seguridad.dto.EmailRequest;
 import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
 import com.mercado_animales.seguridad.dto.ModoFacturacionRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
+import com.mercado_animales.seguridad.dto.ReiniciarPasswordRequest;
 import com.mercado_animales.seguridad.dto.UsuarioCreateRequest;
 import com.mercado_animales.seguridad.dto.UsuarioUpdateRequest;
 import com.mercado_animales.seguridad.dto.VerificarRegistroRequest;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -56,6 +58,14 @@ public class AuthService {
 
     private static final String ROL_VENDEDOR = "VENDEDOR";
     private static final String ROL_COMPRADOR = "COMPRADOR";
+    private static final String ROL_ADMIN = "ADMIN";
+    private static final String ROL_FUNCIONARIO = "FUNCIONARIO";
+
+    /** Roles que un ADMIN puede alternar desde la tabla de usuarios. */
+    private static final Set<String> ROLES_CONVERTIBLES = Set.of(ROL_COMPRADOR, ROL_VENDEDOR);
+
+    /** Roles especiales: se asignan al crear la cuenta y no se convierten. */
+    private static final Set<String> ROLES_ESPECIALES = Set.of(ROL_ADMIN, ROL_FUNCIONARIO);
 
     private final UsuarioRepository usuarioRepository;
     private final RolRepository rolRepository;
@@ -278,6 +288,25 @@ public class AuthService {
         return UsuarioResponse.from(usuario);
     }
 
+    /**
+     * Solo se permite convertir entre COMPRADOR y VENDEDOR. Los roles ADMIN y
+     * FUNCIONARIO son especiales: se asignan al crear la cuenta y no se tocan
+     * desde la tabla de usuarios.
+     */
+    private void validarConversionDeRol(Usuario usuario, Rol rol) {
+        if (!ROLES_CONVERTIBLES.contains(rol.getName())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Solo se puede asignar o quitar el rol COMPRADOR o VENDEDOR");
+        }
+        boolean especial = usuario.getRoles().stream()
+                .map(Rol::getName)
+                .anyMatch(ROLES_ESPECIALES::contains);
+        if (especial) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Los usuarios ADMIN o FUNCIONARIO no se convierten entre COMPRADOR y VENDEDOR");
+        }
+    }
+
     @Caching(evict = {
             @CacheEvict(cacheNames = "usuarios", key = "#id"),
             @CacheEvict(cacheNames = "usuarios-por-email", key = "#result.email")
@@ -288,6 +317,7 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
         Rol rolEntidad = rolRepository.findByName(rol.toUpperCase(Locale.ROOT))
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "El rol " + rol + " no existe"));
+        validarConversionDeRol(usuario, rolEntidad);
 
         usuarioRolRepository.reactivar(usuario.getId(), rolEntidad.getId());
         log.info("Rol {} asignado al usuario id={}", rolEntidad.getName(), usuario.getId());
@@ -306,6 +336,7 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
         Rol rolEntidad = rolRepository.findByName(rol.toUpperCase(Locale.ROOT))
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "El rol " + rol + " no existe"));
+        validarConversionDeRol(usuario, rolEntidad);
 
         usuarioRolRepository.desactivar(usuario.getId(), rolEntidad.getId());
         log.info("Rol {} quitado al usuario id={}", rolEntidad.getName(), usuario.getId());
@@ -450,6 +481,43 @@ public class AuthService {
         usuarioRepository.save(usuario);
         log.info("Contrasena cambiada por el usuario id={}", usuario.getId());
 
+        return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(usuario.getEmail())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
+    }
+
+    /**
+     * Reinicio de contrasena por un ADMIN. La clave la define el ADMIN y queda
+     * marcada como temporal: el usuario debera cambiarla en su proximo ingreso.
+     *
+     * <p>No se admite reiniciar la propia cuenta por este camino: el ADMIN ya
+     * tiene la pantalla de perfil, donde si se exige la clave actual. Eso evita
+     * dejar su propia sesion con una clave que ya no conoce.
+     */
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "usuarios", key = "#id"),
+            @CacheEvict(cacheNames = "usuarios-por-email", allEntries = true)
+    })
+    @Transactional
+    public UsuarioResponse reiniciarPassword(Integer id, Integer adminId,
+                                             ReiniciarPasswordRequest request) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+
+        if (usuario.getId().equals(adminId)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "Para cambiar tu propia contrasena usa la pantalla de perfil");
+        }
+        if (passwordEncoder.matches(request.getPassword(), usuario.getPasswordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "La contrasena de reinicio debe ser distinta de la actual");
+        }
+
+        usuario.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        usuario.setDebeCambiarPassword(true);
+        usuarioRepository.save(usuario);
+
+        log.info("Contrasena reiniciada por admin id={} al usuario id={}, email={}",
+                adminId, usuario.getId(), usuario.getEmail());
         return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(usuario.getEmail())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
     }
