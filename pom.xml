@@ -13,6 +13,7 @@
 	<version>0.0.1-SNAPSHOT</version>
 	<name>mercado-animales-seguridad</name>
 	<description>Microservicio de Seguridad y Email - Mercado Animales</description>
+	<packaging>war</packaging>
 
 	<properties>
 		<java.version>21</java.version>
@@ -37,6 +38,26 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<!--
+			Tomcat es provisto por el contenedor externo (Tomcat 11). El plugin de
+			Spring Boot lo deja en WEB-INF/lib-provided, asi que el WAR tambien
+			sigue siendo ejecutable con "java -jar" para el desarrollo local.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-tomcat</artifactId>
+			<scope>provided</scope>
+		</dependency>
+		<!--
+			tomcat-embed-el llega por la validacion y quedaria en WEB-INF/lib.
+			En un Tomcat externo el EL lo aporta el contenedor; se marca provided
+			para que no haya dos implementaciones en el mismo classpath.
+		-->
+		<dependency>
+			<groupId>org.apache.tomcat.embed</groupId>
+			<artifactId>tomcat-embed-el</artifactId>
+			<scope>provided</scope>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -119,6 +140,8 @@
 	</dependencies>
 
 	<build>
+		<!-- El nombre del WAR define el context path en Tomcat: seguridad -> /seguridad. -->
+		<finalName>seguridad</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

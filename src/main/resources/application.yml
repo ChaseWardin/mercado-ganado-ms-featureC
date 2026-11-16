@@ -59,6 +59,20 @@ eureka:
       defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
   instance:
     prefer-ip-address: true
+    # ---------------------------------------------------------------------
+    # DESPLIEGUE COMO WAR EN TOMCAT EXTERNO
+    #
+    # Dentro del Tomcat, "server.port" no se usa: el puerto real lo pone el
+    # conector de Tomcat (8083 para los tres WAR). Si Eureka no lo sabe,
+    # registra 8084 y el gateway manda el trafico a un puerto donde no hay
+    # nadie -> 503. En el setenv.bat del Tomcat se define EUREKA_PORT=8083.
+    #
+    # Con "java -jar" no se define EUREKA_PORT y se usa SERVER_PORT, asi que
+    # el desarrollo local sigue funcionando igual que antes.
+    # ---------------------------------------------------------------------
+    non-secure-port: ${EUREKA_PORT:${SERVER_PORT:8084}}
+    non-secure-port-enabled: true
+    secure-port-enabled: false
     lease-renewal-interval-in-seconds: 5
     lease-expiration-duration-in-seconds: 15
 
