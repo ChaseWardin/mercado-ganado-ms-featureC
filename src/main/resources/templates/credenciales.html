@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Tus credenciales de acceso - Mercado Animales</h2>
+  <p>Hola <span th:text="${nombre}">usuario</span>,</p>
+  <p>Un administrador creo o reinicio tu cuenta. Estos son tus datos de acceso:</p>
+  <p><b>Email:</b> <span th:text="${email}">correo@ejemplo.com</span></p>
+  <p><b>Contrasena temporal:</b> <span th:text="${password}">********</span></p>
+  <p>Al ingresar, la plataforma te va a pedir que cambies la contrasena antes de seguir.</p>
+  <p>Si no esperabas este correo, contacta a un administrador.</p>
+</body>
+</html>

@@ -1,7 +1,9 @@
 package com.mercado_animales.seguridad.controller;
 
 import com.mercado_animales.seguridad.dto.LoginRequest;
+import com.mercado_animales.seguridad.dto.RecuperarPasswordRequest;
 import com.mercado_animales.seguridad.dto.RegistroRequest;
+import com.mercado_animales.seguridad.dto.RestablecerPasswordRequest;
 import com.mercado_animales.seguridad.dto.VerificarRegistroRequest;
 import com.mercado_animales.seguridad.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -53,6 +55,22 @@ public class AuthController {
     public ResponseEntity<?> verificarRegistro(@Valid @RequestBody VerificarRegistroRequest request) {
         AuthService.TokenResponse resp = authService.confirmarRegistro(request);
         return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/recuperar")
+    @Operation(summary = "Solicitar un codigo para recuperar la contrasena")
+    public ResponseEntity<?> recuperar(@Valid @RequestBody RecuperarPasswordRequest request) {
+        // La respuesta es generica a proposito: no revela si el correo existe.
+        String mensaje = authService.solicitarRecuperacion(request.getEmail());
+        return ResponseEntity.ok(Map.of("mensaje", mensaje));
+    }
+
+    @PostMapping("/restablecer")
+    @Operation(summary = "Cambiar la contrasena usando el codigo de recuperacion")
+    public ResponseEntity<?> restablecer(@Valid @RequestBody RestablecerPasswordRequest request) {
+        String mensaje = authService.restablecerPassword(
+                request.getEmail(), request.getCodigo(), request.getPasswordNueva());
+        return ResponseEntity.ok(Map.of("mensaje", mensaje));
     }
 
     @PostMapping("/activar-vendedor")

@@ -1,6 +1,5 @@
 package com.mercado_animales.seguridad.service;
 
-import com.mercado_animales.seguridad.dto.EmailRequest;
 import com.mercado_animales.seguridad.dto.CambiarPasswordRequest;
 import com.mercado_animales.seguridad.dto.ModoFacturacionRequest;
 import com.mercado_animales.seguridad.dto.PerfilUpdateRequest;
@@ -72,7 +71,7 @@ public class AuthService {
     private final UsuarioRolRepository usuarioRolRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
-    private final EmailService emailService;
+    private final NotificacionService notificacionService;
 
     @Value("${app.jwt.expiration-ms:86400000}")
     private long expirationMs;
@@ -84,6 +83,16 @@ public class AuthService {
      * usuarios con altas sin verificar.
      */
     private final ConcurrentHashMap<String, RegistroPendiente> pendientes = new ConcurrentHashMap<>();
+
+    /**
+     * Recuperaciones de contrasena en curso. Igual que los registros
+     * pendientes, viven en memoria: si el servicio se reinicia, el codigo se
+     * pierde y hay que pedir otro. Se guarda el hash, nunca el codigo en claro.
+     */
+    private final ConcurrentHashMap<String, RecuperacionPendiente> recuperaciones = new ConcurrentHashMap<>();
+
+    /** Espera minima entre dos codigos para el mismo correo. */
+    private static final long ESPERA_REENVIO_SEGUNDOS = 60;
 
     public record TokenResponse(String token, String tipo, long expiraEn, Integer usuarioId, String email,
                                 String nombre, List<String> roles, boolean debeCambiarPassword,
@@ -113,9 +122,16 @@ public class AuthService {
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "El rol " + rol + " no existe"));
 
         removeIfExpired(normalized);
-        if (pendientes.containsKey(normalized)) {
-            throw new ApiException(HttpStatus.CONFLICT, "Ya hay un registro pendiente para " + normalized
-                    + "; revisa tu email o solicita un nuevo codigo");
+
+        // Un segundo intento de registro con el mismo correo ya no responde
+        // 409: se toma como un reenvio del codigo. La espera de 60 segundos
+        // evita que el boton "Reenviar" se convierta en una metralleta de
+        // correos y que el codigo cambie antes de que llegue el primero.
+        RegistroPendiente previo = pendientes.get(normalized);
+        if (previo != null
+                && previo.ultimoEnvio.plusSeconds(ESPERA_REENVIO_SEGUNDOS).isAfter(LocalDateTime.now())) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Ya enviamos un codigo hace menos de un minuto. Espera para pedir otro.");
         }
 
         String codigo = generarCodigo();
@@ -128,15 +144,12 @@ public class AuthService {
                 rol,
                 passwordEncoder.encode(codigo),
                 LocalDateTime.now().plusMinutes(5),
-                0));
+                0,
+                LocalDateTime.now()));
 
-        EmailRequest emailReq = new EmailRequest();
-        emailReq.setTo(List.of(normalized));
-        emailReq.setTipo("VERIFICACION_CODIGO");
-        emailReq.setVariables(Map.of("nombre", nombre.trim(), "codigo", codigo));
-        emailService.enviar(emailReq);
+        notificacionService.enviarVerificacion(normalized, nombre.trim(), codigo);
 
-        log.info("Registro pendiente creado para {} (rol={}); codigo enviado", normalized, rol);
+        log.info("Registro pendiente creado o renovado para {} (rol={}); codigo enviado", normalized, rol);
         return "Se envio un codigo de verificacion al correo " + normalized;
     }
 
@@ -178,6 +191,90 @@ public class AuthService {
         log.info("Usuario verificado y creado: id={}, email={}, rol={}",
                 guardado.getId(), guardado.getEmail(), pendiente.nombreRol);
         return buildToken(guardado);
+    }
+
+    // ------------------------------------------------------------------
+    // Recuperacion de contrasena (sin sesion)
+    // ------------------------------------------------------------------
+
+    /**
+     * Genera un codigo de recuperacion y lo manda por correo.
+     *
+     * <p>La respuesta es siempre la misma exista o no la cuenta: si dijera
+     * "ese correo no esta registrado", cualquiera podria averiguar quien tiene
+     * cuenta en el mercado. Por la misma razon, cuando el pedido cae dentro de
+     * la espera de 60 segundos se ignora en silencio.
+     */
+    public String solicitarRecuperacion(String email) {
+        String normalized = normalizarEmail(email);
+        String generico = "Si el correo esta registrado, enviamos un codigo de recuperacion.";
+
+        usuarioRepository.findByEmail(normalized)
+                .filter(usuario -> Boolean.TRUE.equals(usuario.getActivo()))
+                .ifPresent(usuario -> {
+                    LocalDateTime ahora = LocalDateTime.now();
+                    RecuperacionPendiente previa = recuperaciones.get(normalized);
+                    if (previa != null
+                            && previa.ultimoEnvio.plusSeconds(ESPERA_REENVIO_SEGUNDOS).isAfter(ahora)) {
+                        return;
+                    }
+
+                    String codigo = generarCodigo();
+                    recuperaciones.put(normalized, new RecuperacionPendiente(
+                            passwordEncoder.encode(codigo),
+                            ahora.plusMinutes(15),
+                            0,
+                            ahora));
+
+                    notificacionService.enviarRecuperacion(normalized, usuario.getNombre(), codigo);
+                    log.info("Codigo de recuperacion enviado a {}", normalized);
+                });
+
+        return generico;
+    }
+
+    /**
+     * Valida el codigo de recuperacion y reemplaza la contrasena.
+     *
+     * <p>El codigo tiene 15 minutos y 5 intentos. Se borra al usarlo, asi que
+     * un enlace o codigo filtrado no sirve dos veces.
+     */
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "usuarios", allEntries = true),
+            @CacheEvict(cacheNames = "usuarios-por-email", allEntries = true)
+    })
+    @Transactional
+    public String restablecerPassword(String email, String codigo, String passwordNueva) {
+        String normalized = normalizarEmail(email);
+        RecuperacionPendiente pendiente = recuperaciones.get(normalized);
+
+        if (pendiente == null || pendiente.expiraEn.isBefore(LocalDateTime.now())) {
+            recuperaciones.remove(normalized);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El codigo es invalido o expiro. Solicita uno nuevo");
+        }
+        if (pendiente.intentos >= 5) {
+            recuperaciones.remove(normalized);
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Demasiados intentos. Solicita un nuevo codigo");
+        }
+
+        pendiente.intentos++;
+        if (!passwordEncoder.matches(codigo, pendiente.codigoHash)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El codigo es invalido o expiro. Solicita uno nuevo");
+        }
+
+        Usuario usuario = usuarioRepository.findByEmail(normalized)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST,
+                        "El codigo es invalido o expiro. Solicita uno nuevo"));
+
+        usuario.setPasswordHash(passwordEncoder.encode(passwordNueva));
+        // La clave la eligio el propio usuario: ya no es temporal.
+        usuario.setDebeCambiarPassword(false);
+        usuarioRepository.save(usuario);
+        recuperaciones.remove(normalized);
+
+        log.info("Contrasena restablecida por recuperacion: email={}", normalized);
+        return "Contrasena actualizada. Ya puedes iniciar sesion.";
     }
 
     // ------------------------------------------------------------------
@@ -285,6 +382,10 @@ public class AuthService {
         usuarioRepository.save(usuario);
         log.info("Usuario desactivado: id={}, email={}, motivo={}",
                 usuario.getId(), usuario.getEmail(), motivo.trim());
+
+        notificacionService.enviarCuentaBloqueada(usuario.getEmail(), usuario.getNombre(),
+                usuario.getMotivoDesactivacion());
+
         return UsuarioResponse.from(usuario);
     }
 
@@ -382,6 +483,12 @@ public class AuthService {
         Usuario guardado = usuarioRepository.save(usuario);
         log.info("Usuario creado por admin: id={}, email={}, roles={}",
                 guardado.getId(), guardado.getEmail(), nombresRoles);
+
+        // La clave la definio el ADMIN y es temporal: viaja por correo junto con
+        // la aclaracion de que debe cambiarla al ingresar.
+        notificacionService.enviarCredenciales(guardado.getEmail(), guardado.getNombre(),
+                request.getPassword());
+
         return UsuarioResponse.from(guardado);
     }
 
@@ -397,6 +504,9 @@ public class AuthService {
     public UsuarioResponse actualizarUsuario(Integer id, UsuarioUpdateRequest request) {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado"));
+
+        boolean estabaActivo = Boolean.TRUE.equals(usuario.getActivo());
+        boolean reactivado = false;
 
         String email = normalizarEmail(request.getEmail());
         usuarioRepository.findByEmail(email)
@@ -421,11 +531,17 @@ public class AuthService {
             usuario.setActivo(request.getActivo());
             if (request.getActivo()) {
                 usuario.setMotivoDesactivacion(null);
+                reactivado = !estabaActivo;
             }
         }
         usuarioRepository.save(usuario);
 
         log.info("Usuario actualizado por admin: id={}, email={}", usuario.getId(), usuario.getEmail());
+
+        if (reactivado) {
+            notificacionService.enviarCuentaReactivada(usuario.getEmail(), usuario.getNombre());
+        }
+
         return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(email)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
     }
@@ -518,6 +634,10 @@ public class AuthService {
 
         log.info("Contrasena reiniciada por admin id={} al usuario id={}, email={}",
                 adminId, usuario.getId(), usuario.getEmail());
+
+        notificacionService.enviarCredenciales(usuario.getEmail(), usuario.getNombre(),
+                request.getPassword());
+
         return UsuarioResponse.from(usuarioRepository.findByEmailWithRoles(usuario.getEmail())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Usuario no encontrado")));
     }
@@ -648,10 +768,12 @@ public class AuthService {
         final String nombreRol;
         final String codigoHash;
         final LocalDateTime expiraEn;
+        final LocalDateTime ultimoEnvio;
         int intentos;
 
         RegistroPendiente(String nombre, String email, String passwordHash, String telefono, String ruc,
-                          String nombreRol, String codigoHash, LocalDateTime expiraEn, int intentos) {
+                          String nombreRol, String codigoHash, LocalDateTime expiraEn, int intentos,
+                          LocalDateTime ultimoEnvio) {
             this.nombre = nombre;
             this.email = email;
             this.passwordHash = passwordHash;
@@ -661,6 +783,22 @@ public class AuthService {
             this.codigoHash = codigoHash;
             this.expiraEn = expiraEn;
             this.intentos = intentos;
+            this.ultimoEnvio = ultimoEnvio;
+        }
+    }
+
+    private static class RecuperacionPendiente {
+        final String codigoHash;
+        final LocalDateTime expiraEn;
+        final LocalDateTime ultimoEnvio;
+        int intentos;
+
+        RecuperacionPendiente(String codigoHash, LocalDateTime expiraEn, int intentos,
+                              LocalDateTime ultimoEnvio) {
+            this.codigoHash = codigoHash;
+            this.expiraEn = expiraEn;
+            this.intentos = intentos;
+            this.ultimoEnvio = ultimoEnvio;
         }
     }
 

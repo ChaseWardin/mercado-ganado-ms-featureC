@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body>
+  <h2>Recupera tu contrasena - Mercado Animales</h2>
+  <p>Hola <span th:text="${nombre}">usuario</span>,</p>
+  <p>Recibimos un pedido para restablecer la contrasena de tu cuenta.</p>
+  <p>Tu codigo de recuperacion es:</p>
+  <h1 th:text="${codigo}">000000</h1>
+  <p>Ingresa este codigo en la pantalla de recuperacion. Expira en 15 minutos.</p>
+  <p>Si no pediste el cambio, ignora este correo: tu contrasena actual sigue funcionando.</p>
+</body>
+</html>
